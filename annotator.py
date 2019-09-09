@@ -41,6 +41,9 @@ class Annotator:
         # Debug
         self.debug_verbose = 0
 
+        # plugin multiple selection
+        self.is_shifting = False
+        self.last_ind_click = 0
 
     def video_to_clips(self, video_file, output_folder, resize=1, overlap=0, clip_length=90):
         '''Opens a long video file and saves it into several consecutive clips
@@ -301,15 +304,28 @@ class Annotator:
             
         return current_mosaic
 
-
     # Create the click callback
     def click_callback(self, event, x_click, y_click, flags, param):
         '''Click callback that sets the lables based on the click'''
-        
+
         # Set the label
         if event == cv2.EVENT_LBUTTONDOWN:
             label = self.labels[self.selected_label]
-            self.set_label(label['name'], x_click, y_click)
+            ind_click = self.xy_to_ind_click(x_click, y_click)
+
+            # multiple selection
+            if self.is_shifting:
+                try:
+                    self.set_multiple_labels(label['name'], self.last_ind_click, ind_click)
+                except Exception:
+                    print('first click > last click.')
+
+                self.last_ind_click = ind_click
+            # single selection
+            else:
+                self.set_label(label['name'], x_click, y_click)
+
+            self.last_ind_click = ind_click
 
         # Detect right click to remove label
         if event == cv2.EVENT_RBUTTONDOWN:
@@ -324,7 +340,6 @@ class Annotator:
         i_click = int(np.min((np.max((0, i_click)), self.Ny-1)))
         j_click = int(np.min((np.max((0, j_click)), self.Nx-1)))
         return i_click, j_click
-
 
     def set_label(self, label_text, x_click, y_click):
         '''Set a specific label based on the user click input'''
@@ -342,6 +357,26 @@ class Annotator:
         # Update the rectangles
         self.update_rectangles()
 
+    def set_multiple_labels(self, label_text, first_ind_click, last_ind_click):
+        '''Select multiple cli'''
+        if first_ind_click <= last_ind_click:
+            vid_in_page = self.pagination[self.current_page]
+            for ind_click in range(first_ind_click, last_ind_click+1):
+                try:
+                    self.dataset[vid_in_page[ind_click]]['label'] = label_text
+                except IndexError:
+                    print('No video found in position (%d)' % ind_click)
+
+            # Update the rectangles
+            self.update_rectangles()
+        else:
+            raise Exception('Bad intervals: first (%d) > last (%d)' % (first_ind_click, last_ind_click))
+
+    def xy_to_ind_click(self, x_click, y_click):
+        # Convert i and j click into a single index
+        i_click, j_click = self.click_to_ij(x_click, y_click)
+        ind_click = j_click * self.Ny + i_click
+        return ind_click
 
     def update_rectangles(self):
         '''Update the rectangles shown in the gui according to the labels'''
@@ -646,6 +681,11 @@ class Annotator:
         if chr(key_input) in {'q', 'Q'}:
             run = None
             run_this_page = False
+
+        # multiple selection
+        if key_input in {225}:
+            self.is_shifting = not self.is_shifting
+            print("pressed, is shifting...(is_shifting=%r)" % self.is_shifting)
                 
         return run_this_page, run
 
